@@ -4,17 +4,17 @@
 
 ## 安装
 
-从 [Releases](https://github.com/GxyFly/dsh-message-rewind/releases) 下载 `dsh-message-rewind-0.1.2.tgz`。使用 Desktop 自带 CLI 安装已构建的包，不要安装到另一个 CLI 的 web profile。以下为 Windows 示例，请将两处路径替换成实际安装目录和下载位置：
+从 [Releases](https://github.com/GxyFly/dsh-message-rewind/releases) 下载 `dsh-message-rewind-0.1.3.tgz`。使用 Desktop 自带 CLI 安装已构建的包，不要安装到另一个 CLI 的 web profile。以下为 Windows 示例，请将两处路径替换成实际安装目录和下载位置：
 
 ```powershell
-& 'C:\path\to\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add 'C:\path\to\downloads\dsh-message-rewind-0.1.2.tgz'
+& 'C:\path\to\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add 'C:\path\to\downloads\dsh-message-rewind-0.1.3.tgz'
 ```
 
 重新加载应用或重启后生效。卸载使用同一 CLI：`plugin --profile desktop remove dsh-message-rewind`。
 
 ## 使用
 
-在已停止运行的普通会话中，点击历史用户消息下方的铅笔。修改后点击“发送”，或按 Ctrl+Enter。Esc 或“取消”退出编辑。旧会话仍保留在工作区。
+在已停止运行的普通会话中，点击历史用户消息下方的铅笔。修改后点击“发送”，或按 Enter；Shift+Enter 换行。中文等输入法组合输入时的 Enter 保持选词行为，不提交消息。Esc 或“取消”退出编辑。旧会话仍保留在工作区。
 
 这是上下文回退，**不会恢复工作区文件、长期记忆或外部系统状态**。新分支仍能读到当前文件。第一版支持纯文本普通用户消息；附件消息、同轮 steering、不能保留完整前文的排队消息会明确拒绝，不会静默丢内容。原来的附件仍由 DSH 原生内容组件展示。
 

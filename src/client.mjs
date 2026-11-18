@@ -1,4 +1,4 @@
-import { prepareContent, planRewind, commitRewind } from './core.mjs';
+import { prepareContent, planRewind, commitRewind, isSendKey } from './core.mjs';
 
 export const name = 'message-rewind-client';
 export const inject = ['slots', 'sessions', 'uiWorkspace', 'remote', 'remote.session'];
@@ -74,7 +74,7 @@ export function apply(ctx) {
       h('style',null,STYLES),
       renderSlotChain?.('conversation.chat.user.before',{source:data.source,kind:node.kind},{fallback:null}),
       editing ? h('div',{className:'dsh-rw-editor',title:'编辑重发只回退对话上下文，工作区文件保持当前状态。'},
-        h('textarea',{'aria-label':'编辑消息',autoFocus:true,value:text,disabled:busy||Boolean(currentOperation.current?.childId),onChange:e=>setText(e.target.value),onKeyDown:e=>{if(e.key==='Escape'&&!busy){setEditing(false);setError('');} if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();submit();}}}),
+        h('textarea',{'aria-label':'编辑消息',autoFocus:true,value:text,disabled:busy||Boolean(currentOperation.current?.childId),onChange:e=>setText(e.target.value),onKeyDown:e=>{if(e.key==='Escape'&&!busy){setEditing(false);setError('');} if(isSendKey(e)){e.preventDefault();if(!e.repeat)submit();}}}),
         error&&h('div',{role:'alert',className:'dsh-rw-error'},error),
         currentOperation.current?.childId&&error&&h('button',{type:'button',className:'dsh-rw-link',onClick:()=>ctx.uiWorkspace.openSession(currentOperation.current.childId)},'打开已创建的分支'),
         h('div',{className:'dsh-rw-buttons'},
