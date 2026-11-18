@@ -1,0 +1,23 @@
+{
+  "name": "dsh-message-rewind",
+  "version": "0.1.2",
+  "description": "Edit a historical user message and continue from a clean history prefix",
+  "type": "module",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/GxyFly/dsh-message-rewind.git" },
+  "homepage": "https://github.com/GxyFly/dsh-message-rewind#readme",
+  "bugs": { "url": "https://github.com/GxyFly/dsh-message-rewind/issues" },
+  "keywords": ["dsh-plugin", "deepseek-harness", "rewind", "message-editing"],
+  "main": "./lib/index.js",
+  "exports": { ".": "./lib/index.js", "./client": "./lib/client.js" },
+  "files": ["lib", "src", "tests", "build.mjs", "README.md", "cordis.patch.yml"],
+  "engines": { "dsh": "0.2.2-rc.3", "node": ">=24.9.0" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-ui-chat", "@deepseek-ai/dsh-api-session-controller", "@deepseek-ai/dsh-client-ui-workspace"]
+    }
+  },
+  "scripts": { "build": "node build.mjs", "test": "node --test tests/*.test.mjs" }
+}
