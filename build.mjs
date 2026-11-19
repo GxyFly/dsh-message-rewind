@@ -5,4 +5,4 @@ const core=(await read('./src/core.mjs')).replaceAll('export ','');
 const client=(await read('./src/client.mjs')).replace(/^import .*core\.mjs';\r?\n/,'').replaceAll('export ','');
 await writeFile(new URL('./lib/client.js',import.meta.url),`window.__ModuleLoader__.load({id:'dsh-message-rewind',factory:require=>{\n${core}\n${client}\nreturn {name,inject,apply};\n}});\n`);
 await writeFile(new URL('./lib/index.js',import.meta.url),await read('./src/index.mjs'));
-console.log('Built host and browser plugin for DSH 0.2.2-rc.3');
+console.log('Built DSH host and browser plugin');

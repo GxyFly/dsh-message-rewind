@@ -1,13 +1,13 @@
 # DSH Message Rewind
 
-针对 DeepSeek Harness Desktop **0.2.2-rc.3** 的开源插件。在用户消息下方显示复制和铅笔按钮；点击铅笔原位编辑，取消不改变历史，发送从消息之前的安全历史前缀创建分支。原对话保留，成功后自动切换到新版本。编辑框采用浅灰圆角背景，右下角提供“取消”和“发送”。
+适配 DeepSeek Harness Desktop **0.2.2-rc.3 和 0.2.2-rc.5**。在用户消息下方显示复制和铅笔按钮；点击铅笔原位编辑，取消不改变历史，发送从消息之前的安全历史前缀创建分支。原对话保留，成功后自动切换到新版本。编辑框采用浅灰圆角背景，右下角提供“取消”和“发送”。
 
 ## 安装
 
-从 [Releases](https://github.com/GxyFly/dsh-message-rewind/releases) 下载 `dsh-message-rewind-0.1.3.tgz`。使用 Desktop 自带 CLI 安装已构建的包，不要安装到另一个 CLI 的 web profile。以下为 Windows 示例，请将两处路径替换成实际安装目录和下载位置：
+在 [Releases](https://github.com/GxyFly/dsh-message-rewind/releases) 选择兼容当前客户端版本的 `.tgz`，用 Desktop 自带 CLI 安装。以下为 Windows 示例，请将两处路径替换成实际安装目录和下载位置：
 
 ```powershell
-& 'C:\path\to\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add 'C:\path\to\downloads\dsh-message-rewind-0.1.3.tgz'
+& 'C:\path\to\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add 'C:\path\to\downloads\dsh-message-rewind-0.1.4.tgz'
 ```
 
 重新加载应用或重启后生效。卸载使用同一 CLI：`plugin --profile desktop remove dsh-message-rewind`。
@@ -32,11 +32,11 @@ Host 入口只声明插件；Client 通过公开 `conversation.chat.node` keyed 
 
 无构建时第三方依赖：`node build.mjs` 生成 Host 和浏览器闭包模块，`node --test tests/*.test.mjs` 检查历史切点与失败重试。发布包包含源码和构建结果。
 
-插件固定适配 0.2.2-rc.3，升级 DSH 前需要重新检查 Slot、Session fork、输入队列与消息协议。
+适配新版 DSH 时，先检查 Slot、Session fork、输入队列与消息协议，再用独立测试会话验证编辑后生成的分支和持久化上下文。将验证通过的版本追加到 `engines.dsh`，并保留已有的兼容版本。
 
 ## 已完成的本机验证
 
-9 项自动测试通过。已在 Windows Desktop 0.2.2-rc.3 中验证铅笔入口、原位编辑、Esc 取消、发送、自动切换分支，以及失败重试复用同一分支。真实模型对修改后的测试消息返回 `REWIND_OK`。对新分支持久化日志使用安装版本的 `Session.deriveMessages()` 核对：只有修改后的一个普通用户输入，原用户消息和原助手回答均未进入派生上下文；重新打开日志后派生结果一致。测试原会话保留。其他系统与 DSH 版本尚未验证。
+已在 Windows Desktop 0.2.2-rc.3 中验证铅笔入口、原位编辑、Esc 取消、发送、自动切换分支，以及失败重试复用同一分支。真实模型对修改后的测试消息返回 `REWIND_OK`。对新分支持久化日志使用安装版本的 `Session.deriveMessages()` 核对：只有修改后的一个普通用户输入，原用户消息和原助手回答均未进入派生上下文；重新打开日志后派生结果一致。测试原会话保留。
 
 ## 许可证
 
