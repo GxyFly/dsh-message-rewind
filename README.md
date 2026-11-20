@@ -1,43 +1,29 @@
-# DSH Message Rewind
+# DSH 消息撤回
 
-适配 DeepSeek Harness Desktop **0.2.2-rc.3 和 0.2.2-rc.5**。在用户消息下方显示复制和铅笔按钮；点击铅笔原位编辑，取消不改变历史，发送从消息之前的安全历史前缀创建分支。原对话保留，成功后自动切换到新版本。编辑框采用浅灰圆角背景，右下角提供“取消”和“发送”。
+DeepSeek Harness 桌面插件。点历史消息下方的铅笔，修改并发送后，**仍在原对话里继续**。例如原对话是 A → B → C，编辑 B 后会变成 A → B′：A 及其回复保留，旧 B、C 及回复退出聊天视图和后续模型请求。
 
 ## 安装
 
-在 [Releases](https://github.com/GxyFly/dsh-message-rewind/releases) 选择兼容当前客户端版本的 `.tgz`，用 Desktop 自带 CLI 安装。以下为 Windows 示例，请将两处路径替换成实际安装目录和下载位置：
+**v0.1.5 适配 DSH Desktop 0.2.2-rc.5。** 从 [GitHub Releases](https://github.com/GxyFly/dsh-message-rewind/releases) 下载 `.tgz`，用 Desktop 自带 CLI 安装，再重启 DSH。Windows 示例，请按实际位置替换路径：
 
 ```powershell
-& 'C:\path\to\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add 'C:\path\to\downloads\dsh-message-rewind-0.1.4.tgz'
+& 'C:\path\to\dsh\resources\runtime\cli\bin\dsh.cmd' plugin --profile desktop add 'C:\path\to\dsh-message-rewind-0.1.5.tgz'
 ```
 
-重新加载应用或重启后生效。卸载使用同一 CLI：`plugin --profile desktop remove dsh-message-rewind`。
+卸载：用同一 CLI 执行 `plugin --profile desktop remove dsh-message-rewind`。已回退的模型上下文不会因此改回去；卸载后原生界面可能再次显示本地日志里的旧轮次。
 
 ## 使用
 
-在已停止运行的普通会话中，点击历史用户消息下方的铅笔。修改后点击“发送”，或按 Enter；Shift+Enter 换行。中文等输入法组合输入时的 Enter 保持选词行为，不提交消息。Esc 或“取消”退出编辑。旧会话仍保留在工作区。
+1. 等当前对话结束运行，点击要修改的用户消息下方的铅笔。
+2. 按 **Enter** 或点击「发送」。**Shift+Enter** 换行；输入法确认候选词时，Enter 不会发送。
+3. 按 Esc 或点击「取消」可退出编辑。
 
-这是上下文回退，**不会恢复工作区文件、长期记忆或外部系统状态**。新分支仍能读到当前文件。第一版支持纯文本普通用户消息；附件消息、同轮 steering、不能保留完整前文的排队消息会明确拒绝，不会静默丢内容。原来的附件仍由 DSH 原生内容组件展示。
+支持每轮一条的纯文本用户消息。暂不支持带附件或同轮追加的消息；如果无法安全核对历史，插件会拒绝提交。旧分支仍保存在 DSH 本地日志中；工作区文件、长期记忆和外部操作不会回滚。
 
-## 实现
+## 构建与验证
 
-Host 入口只声明插件；Client 通过公开 `conversation.chat.node` keyed Slot 替换 user 渲染器，并复用原生 `conversation.chat.user.content` Factory。操作通过宿主原有、受权限控制的 Session API 执行，不增开 HTTP 服务，不改应用安装包。
+使用 Node.js 24.9 或更高版本。运行 `npm run build` 构建，`npm test` 测试，`npm pack` 打包。将 `DSH_SESSION_MODULE` 指向已安装的 `@deepseek-ai/dsh-session` ESM 入口，可额外运行 Session 引擎回放测试。
 
-提交前加载完整历史。按事件日志计算目标消息之前、轮次已关闭且输入队列为空的历史前缀；验证所有更早的用户消息仍在前缀内。调用内置 fork，再用新 requestId 提交新文本。新分支不会继承切点之后的消息、工具结果和压缩摘要。
+v0.1.5 已在独立的 rc.5 环境验证同一会话重发、聊天显示和重启后结果；模型上下文由实际 Session 引擎核对。该环境未配置模型凭据。
 
-分支创建成功后先将进度写入浏览器 sessionStorage，再提交消息。发送重试复用分支和 requestId；同一窗口刷新可恢复此进度。若 fork 请求的响应丢失，宿主 fork API 本身没有幂等键，可能留下未发送消息的空分支；不会将它当作成功。恢复记录包含编辑文字，不会发送给额外第三方。关闭窗口可能清除 sessionStorage。
-
-同一 UI 检查期间若历史改变则拒绝提交；跨客户端同时继续会话没有宿主原子锁，属于本版限制。全局长期记忆、后台任务等外部状态不由本插件恢复。
-
-## 开发与验证
-
-无构建时第三方依赖：`node build.mjs` 生成 Host 和浏览器闭包模块，`node --test tests/*.test.mjs` 检查历史切点与失败重试。发布包包含源码和构建结果。
-
-适配新版 DSH 时，先检查 Slot、Session fork、输入队列与消息协议，再用独立测试会话验证编辑后生成的分支和持久化上下文。将验证通过的版本追加到 `engines.dsh`，并保留已有的兼容版本。
-
-## 已完成的本机验证
-
-已在 Windows Desktop 0.2.2-rc.3 中验证铅笔入口、原位编辑、Esc 取消、发送、自动切换分支，以及失败重试复用同一分支。真实模型对修改后的测试消息返回 `REWIND_OK`。对新分支持久化日志使用安装版本的 `Session.deriveMessages()` 核对：只有修改后的一个普通用户输入，原用户消息和原助手回答均未进入派生上下文；重新打开日志后派生结果一致。测试原会话保留。
-
-## 许可证
-
-[MIT](LICENSE)。本项目是独立第三方插件，与 DeepSeek 和 OpenAI 无隶属关系。
+[MIT 许可证](LICENSE)。本项目是独立第三方插件。

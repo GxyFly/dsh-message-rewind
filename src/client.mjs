@@ -1,29 +1,55 @@
-import { prepareContent, planRewind, commitRewind, isSendKey } from './core.mjs';
+import { prepareContent, isSendKey } from './core.mjs';
+import { rewindMarker } from './inline.mjs';
 
 export const name = 'message-rewind-client';
-export const inject = ['slots', 'sessions', 'uiWorkspace', 'remote', 'remote.session'];
+export const inject = ['slots', 'sessions', 'remote', 'remote.commands'];
 
 /** Attach a user-message renderer through the public keyed Slot. */
 export function apply(ctx) {
-  const {createElement:h, useState, useRef, useSyncExternalStore} = require('react');
-  const operations = new Map();
-  let disposed = false;
-  ctx.effect(()=>()=>{disposed=true;});
-  const prefix = 'dsh-message-rewind:0.1:';
-  const readOperation = key => {
-    if(operations.has(key)) return operations.get(key);
-    try { const raw=sessionStorage.getItem(prefix+key); if(raw) {const op=JSON.parse(raw); operations.set(key,op);return op;} } catch { /* optional recovery storage */ }
-  };
-  const saveOperation = (key,op) => {
-    operations.set(key,op);
-    sessionStorage.setItem(prefix+key,JSON.stringify(op));
-  };
+  const {createElement:h, useState, useRef, useCallback, useMemo, useSyncExternalStore} = require('react');
+  const useSource = source => useSyncExternalStore(
+    useCallback(listener => source.subscribe(listener), [source]),
+    useCallback(() => source.getSnapshot(), [source]),
+  );
+  function InlineHistory({sessionId}) {
+    const source = ctx.sessions.binding(sessionId)?.eventSource;
+    return source ? h(InlineHistoryStyle,{source,sessionId}) : null;
+  }
+  function InlineHistoryStyle({source,sessionId}) {
+    const {entries} = useSource(source);
+    const css = useMemo(() => {
+      const ranges = entries.flatMap(entry => {
+        const receipt = entry.type==='event' && rewindMarker(entry.event);
+        return receipt ? [receipt] : [];
+      });
+      const turns = new Set();
+      for (const entry of entries) {
+        if (entry.type !== 'event' || entry.event.type !== 'turn/start') continue;
+        const turn = entry.event.data.turn;
+        if (Number.isSafeInteger(turn) && ranges.some(r => turn >= r.fromTurn && turn <= r.throughTurn)) turns.add(turn);
+      }
+      const scope = '[data-conversation-session="'+CSS.escape(String(sessionId))+'"] ';
+      const hidden = [];
+      for (const turn of turns) {
+        hidden.push(`[data-chat-flow-key][data-chat-turn="${turn}"]`,
+          `nav button[data-index]:is([aria-label="跳转到第 ${turn} 轮"],[aria-label="加载并跳转到第 ${turn} 轮"],[aria-label="Jump to turn ${turn}"],[aria-label="Load and jump to turn ${turn}"])`);
+      }
+      for (const entry of entries) {
+        const event = entry.type === 'event' && entry.event;
+        if (event?.type === 'command/run' && event.data.name === 'dsh-rewind-edit' && typeof event.data.commandId === 'string') {
+          hidden.push(`[data-chat-flow-key="7:command${CSS.escape(event.data.commandId)}"]`);
+        }
+      }
+      return hidden.map(selector => scope+selector+'{display:none!important}').join('');
+    }, [entries,sessionId]);
+    return h('style',{'data-dsh-inline-rewind':sessionId},css);
+  }
   function UserMessage(props) {
     const {node,sessionId,loadImage,renderFactorySlot,renderSlotChain} = props;
     const data=node.data, prepared=prepareContent(data);
     const [editing,setEditing]=useState(false), [text,setText]=useState(prepared.text);
     const [busy,setBusy]=useState(false), [error,setError]=useState(''), [copied,setCopied]=useState(false);
-    const locked=useRef(false), currentOperation=useRef(null);
+    const locked=useRef(false), request=useRef(null);
     const binding=ctx.sessions.binding(sessionId);
     const snapshot=useSyncExternalStore(binding.session.subscribe.bind(binding.session),binding.session.getSnapshot.bind(binding.session));
     const unsupported=data.content.some(b=>b.type!=='text');
@@ -33,37 +59,18 @@ export function apply(ctx) {
       if(locked.current || !text.trim()) return;
       locked.current=true;setBusy(true);setError('');
       try {
-        const previous=readOperation(sessionId+':'+data.messageId);
-        if(previous && previous.text===text && previous.childId) currentOperation.current=previous;
-        if(!currentOperation.current) {
-          if(binding.session.getSnapshot().running) throw new Error('请先停止生成。');
-          await binding.session.loadThrough(0);
-          if(disposed) return;
-          if(binding.session.getSnapshot().running) throw new Error('会话已继续运行，请稍后重试。');
-          const events=binding.eventSource.getSnapshot().entries.filter(e=>e.type==='event').map(e=>e.event);
-          const plan=planRewind(events,data.messageId);
-          const inbox=binding.session.projections.faceOf('inbox').getSnapshot();
-          if(!inbox || inbox['next-turn']?.length || inbox['next-step']?.length) throw new Error('输入队列尚未清空，请稍后重试。');
-          currentOperation.current={...plan,text,sourceSessionId:sessionId,messageId:data.messageId,requestId:crypto.randomUUID()};
+        if (binding.session.getSnapshot().running) throw new Error('请先停止生成。');
+        if (!document.querySelector('[data-dsh-inline-rewind="'+CSS.escape(String(sessionId))+'"]')) {
+          throw new Error('当前对话界面未加载原地编辑支持。');
         }
-        const op=currentOperation.current;
-        if(op.text!==text) throw new Error('上一提交尚未确定结果，请先重试原内容或打开已创建的分支。');
-        const key=sessionId+':'+data.messageId;
-        const childId=await commitRewind({
-          fork: async boundary => {
-            if(binding.session.getSnapshot().running) throw new Error('会话已继续运行。');
-            const head=binding.eventSource.getSnapshot().entries.filter(e=>e.type==='event').at(-1)?.event.seq;
-            if(head!==op.headSeq) throw new Error('历史已变化，请取消编辑后重试。');
-            if(boundary<0) throw new Error('此消息之前没有可安全继承的事件。');
-            return ctx.sessions.fork({sessionId,atSeq:boundary,allowMigration:false});
-          },
-          save: value=>saveOperation(key,value),
-          prompt: async (child,text,requestId)=>{
-            const result=await ctx.remote.session.prompt({sessionId:child,requestId,mode:'queue',content:[{type:'text',text}]});
-            if(!result.ok) throw new Error(result.error.message);
-          },
-        },op);
-        if(!disposed) ctx.uiWorkspace.openSession(childId);
+        const head=binding.eventSource.getSnapshot().entries.findLast(e=>e.type==='event')?.event.seq;
+        if (!Number.isSafeInteger(head)) throw new Error('无法核对当前对话记录，请稍后重试。');
+        if (request.current?.text !== text) request.current={text,requestId:crypto.randomUUID()};
+        const payload=JSON.stringify({...request.current,messageId:data.messageId,headSeq:head});
+        const reply=await ctx.remote.commands.execute(sessionId,'/dsh-rewind-edit '+payload,[]);
+        if (!reply.ok) throw new Error(reply.error.message);
+        if (reply.value?.result?.kind !== 'success') throw new Error(reply.value?.result?.text || '原地编辑未确认，请稍后重试。');
+        setEditing(false);
       } catch(e) {setError(e instanceof Error?e.message:String(e));}
       finally {locked.current=false;setBusy(false);}
     }
@@ -74,19 +81,21 @@ export function apply(ctx) {
       h('style',null,STYLES),
       renderSlotChain?.('conversation.chat.user.before',{source:data.source,kind:node.kind},{fallback:null}),
       editing ? h('div',{className:'dsh-rw-editor',title:'编辑重发只回退对话上下文，工作区文件保持当前状态。'},
-        h('textarea',{'aria-label':'编辑消息',autoFocus:true,value:text,disabled:busy||Boolean(currentOperation.current?.childId),onChange:e=>setText(e.target.value),onKeyDown:e=>{if(e.key==='Escape'&&!busy){setEditing(false);setError('');} if(isSendKey(e)){e.preventDefault();if(!e.repeat)submit();}}}),
+        h('textarea',{'aria-label':'编辑消息',autoFocus:true,value:text,disabled:busy,onChange:e=>setText(e.target.value),onKeyDown:e=>{if(e.key==='Escape'&&!busy){setEditing(false);setError('');} if(isSendKey(e)){e.preventDefault();if(!e.repeat)submit();}}}),
         error&&h('div',{role:'alert',className:'dsh-rw-error'},error),
-        currentOperation.current?.childId&&error&&h('button',{type:'button',className:'dsh-rw-link',onClick:()=>ctx.uiWorkspace.openSession(currentOperation.current.childId)},'打开已创建的分支'),
         h('div',{className:'dsh-rw-buttons'},
           h('button',{type:'button',disabled:busy,onClick:()=>{setEditing(false);setError('');}},'取消'),
-          h('button',{type:'button',className:'dsh-rw-send',disabled:busy||!text.trim(),onClick:submit},busy?'发送中…':error&&currentOperation.current?.childId?'重试':'发送')))
+          h('button',{type:'button',className:'dsh-rw-send',disabled:busy||!text.trim(),onClick:submit},busy?'发送中…':'发送')))
       : renderFactorySlot('conversation.chat.user.content',{content:prepared,loadImage,facts:{sessionLabels:data.referenceLabels??[],skillNames:data.skillNames??[]},interactive:true}),
       !editing&&h('div',{className:'dsh-rw-actions'},
         h('span',{className:'dsh-rw-clock'},clock),
         button(copied?'已复制':'复制',async()=>{try{await navigator.clipboard.writeText(prepared.text);setCopied(true);}catch{setError('复制失败。');}},icon(copied?'M5 12l4 4L19 6':'M8 8h12v12H8z M4 16V4h12')),
-        button(hint,()=>{currentOperation.current=null;setText(prepared.text);setError('');setEditing(true);},icon('M14 5l5 5 M4 20l4-1L20 7a2.1 2.1 0 0 0-3-3L5 16z'),unavailable)),
+        button(hint,()=>{request.current=null;setText(prepared.text);setError('');setEditing(true);},icon('M14 5l5 5 M4 20l4-1L20 7a2.1 2.1 0 0 0-3-3L5 16z'),unavailable)),
       !editing&&error&&h('span',{role:'alert',className:'dsh-rw-error'},error));
   }
+  ctx.slots.inject('conversation.session.header.utilities',()=>ctx.slots.register({
+    name:'conversation.session.header.utilities',id:'dsh-message-rewind-history',
+  },InlineHistory));
   ctx.slots.inject('conversation.chat.node',()=>ctx.slots.register({
     name:'conversation.chat.node',key:'user',priority:-50,
     children:{'conversation.chat.user.before':{kind:'chain',scope:'session'}},
@@ -106,5 +115,5 @@ const STYLES=`
 .dsh-rw-buttons button:hover{background:#fafafa}.dsh-rw-buttons button:focus-visible{outline:2px solid #6b9cff;outline-offset:2px}
 .dsh-rw-buttons .dsh-rw-send{background:#202123;border-color:#202123;color:#fff}.dsh-rw-buttons .dsh-rw-send:hover{background:#353638}.dsh-rw-buttons button:disabled{opacity:.5;cursor:default}
 @media(prefers-color-scheme:dark){.dsh-rw-editor{background:#303134;color:#ececec}.dsh-rw-buttons button{background:#404145;border-color:#494a4d;color:#ececec}.dsh-rw-buttons button:hover{background:#4b4c50}.dsh-rw-buttons .dsh-rw-send{background:#ececec;border-color:#ececec;color:#202123}.dsh-rw-buttons .dsh-rw-send:hover{background:#fff}}
-.dsh-rw-error{font-size:12px;color:#c53a3a;margin-top:6px}.dsh-rw-link{border:0;background:none;color:#1769e0;cursor:pointer;font:inherit;font-size:12px;padding:6px 0}
+.dsh-rw-error{font-size:12px;color:#c53a3a;margin-top:6px}
 `;
